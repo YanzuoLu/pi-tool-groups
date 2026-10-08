@@ -3,7 +3,7 @@ import { getLanguageFromPath, highlightCode, renderDiff } from "@earendil-works/
 import { truncateToWidth, wrapTextWithAnsi, type Component, type TuiMouseEvent, type TuiMouseEventResult } from "@earendil-works/pi-tui";
 import type { ToolArgs } from "./classify.ts";
 import { isActive, type ToolRow } from "./group.ts";
-import { drawOpened, hitsText, plural, previewOutput, RESULT_INDENT, RESULT_PREFIX, statusDot, type Painter } from "./format.ts";
+import { hitsText, plural, previewOutput, RESULT_INDENT, RESULT_PREFIX, showLess, statusDot, type Painter } from "./format.ts";
 
 /** The parts of Pi's tool row that a call of its own reads, beyond what a group needs. */
 export interface OwnRow extends ToolRow {
@@ -66,9 +66,10 @@ function lineCount(text: string): number {
 /**
  * A call that keeps its own row, drawn the way Claude Code draws it: its marker,
  * `Name(arguments)`, and a short `⎿` result. When that result leaves something
- * out, a click opens the row in place, as Pi draws it on a highlighted
- * background, and a click on the opened row closes it again. Pi's tool-output
- * toggle only changes how the opened row draws.
+ * out, a click opens the row in place, exactly as Pi draws it, with a "show
+ * less" line below that closes it again. Clicks on the opened row reach it as
+ * they would without this extension, and Pi's tool-output toggle only changes
+ * how it draws.
  */
 export class ClaudeRow implements Component {
 	private opened = false;
@@ -82,7 +83,7 @@ export class ClaudeRow implements Component {
 	) {}
 
 	render(width: number): string[] {
-		if (this.opened) this.lines = drawOpened(this.row.render(width), width, this.options.painter);
+		if (this.opened) this.lines = [...this.row.render(width), "", showLess(this.options.painter)];
 		else if (this.row.hideComponent) this.lines = [];
 		else {
 			this.cut = false;
@@ -96,6 +97,7 @@ export class ClaudeRow implements Component {
 	}
 
 	handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+		if (this.opened && event.y < this.lines.length - 1) return this.row.handleMouse?.(event);
 		if (event.button !== "left" || (event.type !== "press" && event.type !== "click")) return undefined;
 		if (!(this.opened || this.cut) || !hitsText(this.lines, event)) return undefined;
 		if (event.type === "click") {

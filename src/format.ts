@@ -5,7 +5,6 @@ export interface Painter {
 	fg(color: "accent" | "error" | "success" | "dim" | "muted" | "toolOutput", text: string): string;
 	bold(text: string): string;
 	italic(text: string): string;
-	bg(color: "userMessageBg", text: string): string;
 }
 
 /** Claude Code's prefix for what a call produced, five columns wide. */
@@ -71,20 +70,9 @@ export function previewOutput(text: string, width: number): { rows: string[]; mo
 	return { rows: rows.slice(0, PREVIEW_ROWS), more: `… +${hidden} ${plural(hidden, "line")}` };
 }
 
-/**
- * An item opened by a click, as Claude Code's fullscreen view draws it: on a
- * highlighted background with a blank highlighted row below. Blank rows above
- * the content keep their place as the margin outside the highlight.
- */
-export function drawOpened(lines: readonly string[], width: number, painter: Painter): string[] {
-	const end = "\x1b[49m";
-	const begin = painter.bg("userMessageBg", "").slice(0, -end.length);
-	// Resets inside a line would end the highlight early, so it resumes after each.
-	const highlight = (line: string) =>
-		begin + line.replace(/\x1b\[(?:0|49)?m/gu, (reset) => reset + begin) + " ".repeat(Math.max(0, width - visibleWidth(line))) + end;
-	let start = 0;
-	while (start < lines.length && !stripTerminalSequences(lines[start]!).trim()) start++;
-	return [...lines.slice(0, start), ...lines.slice(start).map(highlight), highlight("")];
+/** The line under an item opened by a click; a click on it closes the item. */
+export function showLess(painter: Painter): string {
+	return painter.fg("dim", " show less");
 }
 
 /** Whether a click lands on text: Claude Code ignores clicks on blank cells. */

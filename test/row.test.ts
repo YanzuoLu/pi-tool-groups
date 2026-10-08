@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Painter } from "../src/format.ts";
 import { ClaudeRow, countDiff, formatArguments, type OwnRow } from "../src/row.ts";
 
-const plain: Painter = { fg: (_color, text) => text, bold: (text) => text, italic: (text) => text, bg: (_color, text) => `<bg>${text}\x1b[49m` };
+const plain: Painter = { fg: (_color, text) => text, bold: (text) => text, italic: (text) => text };
 const options = { painter: plain, requestRender() {} };
 const dot = process.platform === "darwin" ? "⏺" : "●";
 
@@ -35,13 +35,13 @@ describe("ClaudeRow", () => {
 		expect(row.render(80).slice(2)).toEqual(["  ⎿  Error: boom"]);
 	});
 
-	it("opens to Pi's own row on a click when it leaves output out, and closes the same way", () => {
+	it("opens to Pi's own row on a click when it leaves output out, and closes from its show-less line", () => {
 		const row = new ClaudeRow(own({}), options);
 		row.render(80);
 		const event = { type: "click", button: "left", x: 2, y: 1, screenX: 2, screenY: 1, width: 80, height: 6, shift: false, alt: false, ctrl: false } as const;
 		expect(row.handleMouse(event)).toEqual({ handled: true });
-		expect(row.render(10)).toEqual(["<bg><native>  \x1b[49m", "<bg>          \x1b[49m"]);
-		row.handleMouse({ ...event, y: 0 });
+		expect(row.render(10)).toEqual(["<native>", "", " show less"]);
+		row.handleMouse({ ...event, y: 2 });
 		expect(row.render(80)[1]).toContain("query");
 	});
 

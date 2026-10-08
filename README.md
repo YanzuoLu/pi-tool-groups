@@ -32,7 +32,7 @@ Every other call keeps its own row with a green or red marker and a short result
 
 ## Opening
 
-As in Claude Code's fullscreen view, a click opens a group, or a row whose short result leaves something out. The opened item shows every call as Pi draws it, on a highlighted background, in place of the summary. A click on its text closes it again, and clicks on blank cells do nothing. A click also stops the view from following new output, so the clicked line stays put.
+As in Claude Code's fullscreen view, a click opens a group, or a row whose short result leaves something out, and clicks on blank cells do nothing. The opened item shows every call and thought exactly as Pi draws it, so a click on a call's output or on a thought opens and closes that one the way it does in Pi. A "show less" line below closes the item again. A click that opens or closes an item stops the view from following new output, so the clicked line stays put.
 
 Pi's tool output toggle (`ctrl+o` by default) does not open or close anything here. It only changes how Pi draws the calls inside an opened item.
 

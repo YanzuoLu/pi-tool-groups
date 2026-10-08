@@ -86,7 +86,7 @@ describe("groupChildren", () => {
 	});
 });
 
-const plain: Painter = { fg: (_color, text) => text, bold: (text) => text, italic: (text) => text, bg: (_color, text) => `<bg>${text}\x1b[49m` };
+const plain: Painter = { fg: (_color, text) => text, bold: (text) => text, italic: (text) => text };
 
 function row(toolName: string, args: Record<string, unknown>, done = true, extra: Partial<ToolRow> = {}): ToolRow {
 	return {
@@ -119,16 +119,17 @@ describe("ToolGroup", () => {
 		expect(group(rows).render(80)).toEqual(["", "  Read 1 file, ran 1 shell command"]);
 	});
 
-	it("opens to its members on a click on text, and closes the same way", () => {
+	it("opens to its members on a click on text, and closes from its show-less line", () => {
 		const state = { expanded: false };
 		const g = group([row("read", { path: "a" }), row("bash", { command: "make" })], { state });
 		g.render(20);
 		expect(g.handleMouse(click(0, 1))).toBeUndefined();
 		expect(g.handleMouse(click(4, 1))).toEqual({ handled: true });
 		expect(state.expanded).toBe(true);
-		const lines = g.render(8);
-		expect(lines).toEqual(["<bg><read>  \x1b[49m", "<bg><bash>  \x1b[49m", "<bg>        \x1b[49m"]);
-		g.handleMouse(click(1, 1));
+		expect(g.render(8)).toEqual(["<read>", "<bash>", "", " show less"]);
+		expect(g.handleMouse(click(1, 0))).toBeUndefined();
+		expect(state.expanded).toBe(true);
+		g.handleMouse(click(2, 3));
 		expect(state.expanded).toBe(false);
 	});
 
@@ -149,5 +150,16 @@ describe("ToolGroup", () => {
 			"  Searching for 1 pattern, running 1 shell command · 3s…",
 			"  ⎿  $ sleep 10 … (3s)",
 		]);
+	});
+});
+
+describe("an opened ToolGroup", () => {
+	it("passes clicks on a member to that member", () => {
+		const seen: number[] = [];
+		const member = { ...row("read", { path: "a" }), render: () => ["", "<read>"], handleMouse: (event: { y: number }) => (seen.push(event.y), { handled: true }) };
+		const g = group([row("bash", { command: "x" }), member as ToolRow], { state: { expanded: true } });
+		g.render(20);
+		expect(g.handleMouse(click(1, 2))).toEqual({ handled: true });
+		expect(seen).toEqual([1]);
 	});
 });

@@ -1,6 +1,6 @@
 import { truncateToWidth, type Component, type TuiMouseEvent, type TuiMouseEventResult } from "@earendil-works/pi-tui";
 import { classifyTool, type Kind, type ToolArgs } from "./classify.ts";
-import { drawOpened, formatDuration, hitsText, plural, RESULT_PREFIX, statusDot, type Painter } from "./format.ts";
+import { formatDuration, hitsText, plural, RESULT_PREFIX, showLess, statusDot, type Painter } from "./format.ts";
 
 /** The parts of Pi's tool row that this extension reads. */
 export interface ToolRow extends Component {
@@ -176,9 +176,10 @@ const startTimes = new WeakMap<object, number>();
 
 /**
  * One line that stands for a run of calls and thinking, in Claude Code's
- * fullscreen style. A click opens it in place of that line, to every member as
- * Pi draws it on a highlighted background, and a click on the opened group
- * closes it again. Pi's tool-output toggle only changes how the members draw.
+ * fullscreen style. A click opens it in place of that line, to every member
+ * exactly as Pi draws it, with a "show less" line below that closes it again.
+ * Clicks on the members reach them as they would without the group, and Pi's
+ * tool-output toggle only changes how they draw.
  */
 export class ToolGroup implements Component {
 	/**
@@ -208,7 +209,7 @@ export class ToolGroup implements Component {
 			this.layout.push({ member, top: lines.length, height: memberLines.length });
 			lines.push(...memberLines);
 		}
-		this.lines = drawOpened(lines, width, this.options.painter);
+		this.lines = [...lines, "", showLess(this.options.painter)];
 		return this.lines;
 	}
 
@@ -217,6 +218,10 @@ export class ToolGroup implements Component {
 	}
 
 	handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+		if (this.options.state.expanded && event.y < this.lines.length - 1) {
+			const hit = this.layout.find(({ top, height }) => event.y >= top && event.y < top + height);
+			return hit?.member.handleMouse?.({ ...event, y: event.y - hit.top, height: hit.height });
+		}
 		if (event.button !== "left" || (event.type !== "press" && event.type !== "click")) return undefined;
 		if (!hitsText(this.lines, event)) return undefined;
 		if (event.type === "click") {
