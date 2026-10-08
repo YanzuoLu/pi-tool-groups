@@ -1,6 +1,6 @@
 import { truncateToWidth, type Component, type TuiMouseEvent, type TuiMouseEventResult } from "@earendil-works/pi-tui";
 import { classifyTool, type Kind, type ToolArgs } from "./classify.ts";
-import { formatDuration, plural, RESULT_PREFIX, statusDot, type Painter } from "./format.ts";
+import { drawOpened, formatDuration, hitsText, plural, RESULT_PREFIX, statusDot, type Painter } from "./format.ts";
 
 /** The parts of Pi's tool row that this extension reads. */
 export interface ToolRow extends Component {
@@ -157,20 +157,16 @@ const THINKING_CAP_MS = 600_000;
 /** Whether a group is open, kept per group across frames. */
 export interface GroupState {
 	expanded: boolean;
-	/** Pi's tool-output toggle as last seen; a change opens or closes every group. */
-	host: boolean;
 }
 
 export interface GroupOptions {
 	painter: Painter;
-	/** "ctrl+o to expand", shown after a closed group's summary. */
-	expandHint: string;
 	state: GroupState;
 	/** When a turn finished streaming, or undefined while it streams. */
 	finishedAt: (message: NonNullable<ThoughtLike["lastMessage"]>) => number | undefined;
-	requestRender: () => void;
 	/** Whether the agent is running; a call left without a result by an earlier run is not. */
 	agentRunning?: () => boolean;
+	requestRender: () => void;
 	/** Runs before a click opens or closes the group, to keep the line under the pointer. */
 	beforeToggle?: () => void;
 	now?: () => number;
@@ -180,12 +176,18 @@ const startTimes = new WeakMap<object, number>();
 
 /**
  * One line that stands for a run of calls and thinking, in Claude Code's
- * fullscreen style. Clicking it, or Pi's tool-output toggle, opens it to show
- * every member as Pi draws it.
+ * fullscreen style. A click opens it in place of that line, to every member as
+ * Pi draws it on a highlighted background, and a click on the opened group
+ * closes it again. Pi's tool-output toggle only changes how the members draw.
  */
 export class ToolGroup implements Component {
-	private headerHeight = 0;
-	private layout: Array<{ member: Component; height: number }> = [];
+	/**
+	 * Whether the agent is still at work right after this group: it is running and
+	 * nothing has shown up after the group yet. Claude Code keeps such a group live.
+	 */
+	working = false;
+	private lines: string[] = [];
+	private layout: Array<{ member: Component; top: number; height: number }> = [];
 
 	constructor(
 		readonly rows: readonly ToolRow[],
@@ -195,17 +197,19 @@ export class ToolGroup implements Component {
 	) {}
 
 	render(width: number): string[] {
-		const header = ["", ...this.header(width)];
-		this.headerHeight = header.length;
 		this.layout = [];
-		if (!this.options.state.expanded) return header;
-		const lines = header;
+		if (!this.options.state.expanded) {
+			this.lines = ["", ...this.header(width)];
+			return this.lines;
+		}
+		const lines: string[] = [];
 		for (const member of this.members) {
 			const memberLines = member.render(width);
-			this.layout.push({ member, height: memberLines.length });
+			this.layout.push({ member, top: lines.length, height: memberLines.length });
 			lines.push(...memberLines);
 		}
-		return lines;
+		this.lines = drawOpened(lines, width, this.options.painter);
+		return this.lines;
 	}
 
 	invalidate(): void {
@@ -213,21 +217,14 @@ export class ToolGroup implements Component {
 	}
 
 	handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
-		if (event.y < this.headerHeight) {
-			if (event.button !== "left") return undefined;
-			if (event.type === "click") {
-				this.options.beforeToggle?.();
-				this.options.state.expanded = !this.options.state.expanded;
-				this.options.requestRender();
-			}
-			return { handled: true };
+		if (event.button !== "left" || (event.type !== "press" && event.type !== "click")) return undefined;
+		if (!hitsText(this.lines, event)) return undefined;
+		if (event.type === "click") {
+			this.options.beforeToggle?.();
+			this.options.state.expanded = !this.options.state.expanded;
+			this.options.requestRender();
 		}
-		let top = this.headerHeight;
-		for (const { member, height } of this.layout) {
-			if (event.y < top + height) return member.handleMouse?.({ ...event, y: event.y - top, height });
-			top += height;
-		}
-		return undefined;
+		return { handled: true };
 	}
 
 	private thoughtMs(now: number): number | undefined {
@@ -243,16 +240,15 @@ export class ToolGroup implements Component {
 	}
 
 	private header(width: number): string[] {
-		const { painter, expandHint, state } = this.options;
+		const { painter } = this.options;
 		const now = (this.options.now ?? Date.now)();
 		const running = this.options.agentRunning?.() ?? true;
 		const activeRows = running ? this.rows.filter(isActive) : [];
 		const thinking = this.thoughts.some((thought) => thought.isStreaming);
-		const active = activeRows.length > 0 || thinking;
+		const active = activeRows.length > 0 || thinking || this.working;
 		const summary = summarize(tally(this.rows), active, this.thoughtMs(now), (text) => painter.bold(text));
-		const hint = state.expanded ? "" : ` (${expandHint})`;
 
-		if (!active) return [truncateToWidth(`  ${painter.fg("dim", summary + hint)}`, width)];
+		if (!active) return [truncateToWidth(`  ${painter.fg("dim", summary)}`, width)];
 
 		for (const row of activeRows) if (!startTimes.has(row)) startTimes.set(row, now);
 		let clock = "";
@@ -260,7 +256,7 @@ export class ToolGroup implements Component {
 			const elapsed = now - Math.min(...activeRows.map((row) => startTimes.get(row)!));
 			if (elapsed >= ELAPSED_FROM_MS) clock = painter.fg("dim", ` · ${formatDuration(elapsed)}`);
 		}
-		const lines = [truncateToWidth(`${statusDot(painter, "running", now)}${summary}${clock}…${hint}`, width)];
+		const lines = [truncateToWidth(`${statusDot(painter, "running", now)}${summary}${clock}…`, width)];
 
 		// Thinking that came after the last call says where the turn is; otherwise the last call does.
 		const lastThought = this.thoughts.at(-1);

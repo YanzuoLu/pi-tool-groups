@@ -66,8 +66,8 @@ describe("formatDuration", () => {
 
 describe("previewOutput", () => {
 	it("shows three rows, or four when only one more would hide", () => {
-		expect(previewOutput("1\n2\n3\n4", 80, "x").rows).toEqual(["1", "2", "3", "4"]);
-		expect(previewOutput("1\n2\n3\n4\n5", 80, "x")).toEqual({ rows: ["1", "2", "3"], more: "… +2 lines (x)" });
+		expect(previewOutput("1\n2\n3\n4", 80).rows).toEqual(["1", "2", "3", "4"]);
+		expect(previewOutput("1\n2\n3\n4\n5", 80)).toEqual({ rows: ["1", "2", "3"], more: "… +2 lines" });
 	});
 });
 
@@ -86,7 +86,7 @@ describe("groupChildren", () => {
 	});
 });
 
-const plain: Painter = { fg: (_color, text) => text, bold: (text) => text, italic: (text) => text };
+const plain: Painter = { fg: (_color, text) => text, bold: (text) => text, italic: (text) => text, bg: (_color, text) => `<bg>${text}\x1b[49m` };
 
 function row(toolName: string, args: Record<string, unknown>, done = true, extra: Partial<ToolRow> = {}): ToolRow {
 	return {
@@ -100,10 +100,9 @@ function row(toolName: string, args: Record<string, unknown>, done = true, extra
 }
 
 function group(rows: ToolRow[], options: { state?: GroupState; now?: () => number } = {}) {
-	const state = options.state ?? { expanded: false, host: false };
+	const state = options.state ?? { expanded: false };
 	return new ToolGroup(rows, [], rows, {
 		painter: plain,
-		expandHint: "ctrl+o to expand",
 		state,
 		finishedAt: () => undefined,
 		requestRender() {},
@@ -111,33 +110,43 @@ function group(rows: ToolRow[], options: { state?: GroupState; now?: () => numbe
 	});
 }
 
+const click = (x: number, y: number) =>
+	({ type: "click", button: "left", x, y, screenX: x, screenY: y, width: 80, height: 10, shift: false, alt: false, ctrl: false }) as const;
+
 describe("ToolGroup", () => {
-	it("draws one dim line when done and members when open", () => {
+	it("draws one dim line when done", () => {
 		const rows = [row("read", { path: "a" }), row("bash", { command: "make" })];
-		const state = { expanded: false, host: false };
-		const g = group(rows, { state });
-		expect(g.render(80)).toEqual(["", "  Read 1 file, ran 1 shell command (ctrl+o to expand)"]);
-		state.expanded = true;
-		expect(g.render(80)).toEqual(["", "  Read 1 file, ran 1 shell command", "<read>", "<bash>"]);
+		expect(group(rows).render(80)).toEqual(["", "  Read 1 file, ran 1 shell command"]);
 	});
 
-	it("opens on a click on its line", () => {
-		const state = { expanded: false, host: false };
-		const g = group([row("read", { path: "a" })], { state });
-		g.render(80);
-		const event = { type: "click", button: "left", x: 2, y: 1, screenX: 2, screenY: 1, width: 80, height: 2 } as const;
-		expect(g.handleMouse({ ...event, shift: false, alt: false, ctrl: false })).toEqual({ handled: true });
+	it("opens to its members on a click on text, and closes the same way", () => {
+		const state = { expanded: false };
+		const g = group([row("read", { path: "a" }), row("bash", { command: "make" })], { state });
+		g.render(20);
+		expect(g.handleMouse(click(0, 1))).toBeUndefined();
+		expect(g.handleMouse(click(4, 1))).toEqual({ handled: true });
 		expect(state.expanded).toBe(true);
+		const lines = g.render(8);
+		expect(lines).toEqual(["<bg><read>  \x1b[49m", "<bg><bash>  \x1b[49m", "<bg>        \x1b[49m"]);
+		g.handleMouse(click(1, 1));
+		expect(state.expanded).toBe(false);
+	});
+
+	it("stays live while the agent works right after it", () => {
+		const g = group([row("read", { path: "a" })], { now: () => 600 });
+		g.working = true;
+		expect(g.render(80)[1]).toBe("  Reading 1 file…");
+		expect(g.render(80)[2]).toBe("  ⎿  a");
 	});
 
 	it("shows elapsed time and the running command", () => {
 		let now = 0;
 		const rows = [row("grep", { pattern: "x" }), row("bash", { command: "sleep 10\necho" }, false)];
 		const g = group(rows, { now: () => now });
-		expect(g.render(80)[1]).toBe("⏺ Searching for 1 pattern, running 1 shell command… (ctrl+o to expand)".replace("⏺", process.platform === "darwin" ? "⏺" : "●"));
+		expect(g.render(80)[1]).toBe(`${process.platform === "darwin" ? "⏺" : "●"} Searching for 1 pattern, running 1 shell command…`);
 		now = 3000;
 		expect(g.render(80).slice(1)).toEqual([
-			"  Searching for 1 pattern, running 1 shell command · 3s… (ctrl+o to expand)",
+			"  Searching for 1 pattern, running 1 shell command · 3s…",
 			"  ⎿  $ sleep 10 … (3s)",
 		]);
 	});

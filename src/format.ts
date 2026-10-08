@@ -1,10 +1,11 @@
-import { sliceByColumn, visibleWidth } from "@earendil-works/pi-tui";
+import { sliceByColumn, stripTerminalSequences, visibleWidth, type TuiMouseEvent } from "@earendil-works/pi-tui";
 
 /** The colors and styles this extension draws with, a subset of Pi's theme. */
 export interface Painter {
 	fg(color: "accent" | "error" | "success" | "dim" | "muted" | "toolOutput", text: string): string;
 	bold(text: string): string;
 	italic(text: string): string;
+	bg(color: "userMessageBg", text: string): string;
 }
 
 /** Claude Code's prefix for what a call produced, five columns wide. */
@@ -60,12 +61,35 @@ const PREVIEW_ROWS = 3;
  * three rows, or four when only one more would be hidden, then how many rows
  * are left.
  */
-export function previewOutput(text: string, width: number, expandHint: string): { rows: string[]; more: string | undefined } {
+export function previewOutput(text: string, width: number): { rows: string[]; more: string | undefined } {
 	const trimmed = text.trimEnd();
 	if (!trimmed) return { rows: [], more: undefined };
 	const wrapWidth = Math.max(width - 10, 10);
 	const rows = trimmed.split("\n").flatMap((line) => hardWrap(line, wrapWidth));
 	const hidden = rows.length - PREVIEW_ROWS;
 	if (hidden <= 1) return { rows, more: undefined };
-	return { rows: rows.slice(0, PREVIEW_ROWS), more: `… +${hidden} ${plural(hidden, "line")} (${expandHint})` };
+	return { rows: rows.slice(0, PREVIEW_ROWS), more: `… +${hidden} ${plural(hidden, "line")}` };
+}
+
+/**
+ * An item opened by a click, as Claude Code's fullscreen view draws it: on a
+ * highlighted background with a blank highlighted row below. Blank rows above
+ * the content keep their place as the margin outside the highlight.
+ */
+export function drawOpened(lines: readonly string[], width: number, painter: Painter): string[] {
+	const end = "\x1b[49m";
+	const begin = painter.bg("userMessageBg", "").slice(0, -end.length);
+	// Resets inside a line would end the highlight early, so it resumes after each.
+	const highlight = (line: string) =>
+		begin + line.replace(/\x1b\[(?:0|49)?m/gu, (reset) => reset + begin) + " ".repeat(Math.max(0, width - visibleWidth(line))) + end;
+	let start = 0;
+	while (start < lines.length && !stripTerminalSequences(lines[start]!).trim()) start++;
+	return [...lines.slice(0, start), ...lines.slice(start).map(highlight), highlight("")];
+}
+
+/** Whether a click lands on text: Claude Code ignores clicks on blank cells. */
+export function hitsText(lines: readonly string[], event: TuiMouseEvent): boolean {
+	const line = lines[event.y];
+	if (line === undefined) return false;
+	return stripTerminalSequences(sliceByColumn(line, event.x, 1)).trim().length > 0;
 }

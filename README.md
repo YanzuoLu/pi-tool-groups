@@ -5,13 +5,13 @@ A [pi](https://github.com/earendil-works/pi) extension that draws tool calls the
 Runs of reads, searches, listings, shell commands, and the thinking between them fold into one line.
 
 ```
-  Thought for 12s, searched for 2 patterns, read 3 files, ran 4 shell commands (ctrl+o to expand)
+  Thought for 12s, searched for 2 patterns, read 3 files, ran 4 shell commands
 ```
 
-While a group runs, a dim marker blinks, its verbs switch to the present tense, the elapsed time shows after two seconds, and a second line shows what the latest call or thought is about.
+While a group runs, or the agent is still at work right after it, a dim marker blinks, its verbs switch to the present tense, the elapsed time shows after two seconds, and a second line shows what the latest call or thought is about.
 
 ```
-⏺ Reading 1 file, running 2 shell commands · 5s… (ctrl+o to expand)
+⏺ Reading 1 file, running 2 shell commands · 5s…
   ⎿  $ make test (5s · 12 lines)
 ```
 
@@ -32,7 +32,9 @@ Every other call keeps its own row with a green or red marker and a short result
 
 ## Opening
 
-Click a group or a row to open just that one. Click a group's line again to close it, or a row's output, as with any Pi row. Pi's tool output toggle (`ctrl+o` by default) opens or closes them all. Opened, each call is Pi's own row. A click stops a fullscreen view from following new output, so the clicked line stays put.
+As in Claude Code's fullscreen view, a click opens a group, or a row whose short result leaves something out. The opened item shows every call as Pi draws it, on a highlighted background, in place of the summary. A click on its text closes it again, and clicks on blank cells do nothing. A click also stops the view from following new output, so the clicked line stays put.
+
+Pi's tool output toggle (`ctrl+o` by default) does not open or close anything here. It only changes how Pi draws the calls inside an opened item.
 
 The extension changes only how the chat is laid out. It does not touch tool definitions, thinking display, or key bindings.
 

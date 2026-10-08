@@ -1,7 +1,6 @@
 import {
 	AssistantMessageComponent,
 	BashExecutionComponent,
-	keyText,
 	SkillInvocationMessageComponent,
 	ToolExecutionComponent,
 	UserMessageComponent,
@@ -124,9 +123,8 @@ export default function toolGroups(pi: ExtensionAPI): void {
 			if (chat) {
 				hookMethod(chat, "render", (self, args, original) => {
 					const children = self.children;
+					const width = args[0] as number;
 					const painter = theme as Painter;
-					const expandHint = `${keyText("app.tools.expand")} to expand`;
-					const host = ctx.ui.getToolsExpanded();
 					const requestRender = () => tui.requestRender();
 					const beforeToggle = () => holdViewport(tui);
 					const agentRunning = () => !ctx.isIdle();
@@ -135,27 +133,32 @@ export default function toolGroups(pi: ExtensionAPI): void {
 					const makeGroup = (members: unknown[]) => {
 						let state = groupStates.get(members[0] as object);
 						if (!state) {
-							state = { expanded: host, host };
+							state = { expanded: false };
 							groupStates.set(members[0] as object, state);
-						} else if (state.host !== host) {
-							state.expanded = host;
-							state.host = host;
 						}
 						const rows = members.filter((member) => roleOf(member) === "member") as ToolRow[];
 						const thoughts = members.filter((member) => roleOf(member) === "thought") as ThoughtLike[];
-						return new ToolGroup(rows, thoughts, members as Component[], { painter, expandHint, state, finishedAt, requestRender, beforeToggle, agentRunning });
+						return new ToolGroup(rows, thoughts, members as Component[], {
+							painter, state, finishedAt, requestRender, beforeToggle, agentRunning,
+						});
 					};
 					const ownRow = (child: unknown) => {
 						if (!isKind(child, ToolExecutionComponent) || kindOf(child as ToolRow)) return child;
 						let row = ownRows.get(child as object);
 						if (!row) {
-							row = new ClaudeRow(child as OwnRow, { painter, expandHint, beforeToggle, agentRunning });
+							row = new ClaudeRow(child as OwnRow, { painter, requestRender, beforeToggle, agentRunning });
 							ownRows.set(child as object, row);
 						}
 						return row;
 					};
 
-					self.children = groupChildren(children, roleOf, makeGroup).map(ownRow);
+					const grouped = groupChildren(children, roleOf, makeGroup).map(ownRow);
+					const last = grouped.findLastIndex((child) => child instanceof ToolGroup);
+					if (last >= 0 && agentRunning()) {
+						const after = grouped.slice(last + 1) as Component[];
+						(grouped[last] as ToolGroup).working = after.every((child) => child.render(width).length === 0);
+					}
+					self.children = grouped;
 					try {
 						return original.apply(self, args);
 					} finally {

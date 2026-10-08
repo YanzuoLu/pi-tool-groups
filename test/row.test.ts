@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { Painter } from "../src/format.ts";
 import { ClaudeRow, countDiff, formatArguments, type OwnRow } from "../src/row.ts";
 
-const plain: Painter = { fg: (_color, text) => text, bold: (text) => text, italic: (text) => text };
+const plain: Painter = { fg: (_color, text) => text, bold: (text) => text, italic: (text) => text, bg: (_color, text) => `<bg>${text}\x1b[49m` };
+const options = { painter: plain, requestRender() {} };
 const dot = process.platform === "darwin" ? "⏺" : "●";
 
 function own(extra: Partial<OwnRow>): OwnRow {
@@ -12,37 +13,43 @@ function own(extra: Partial<OwnRow>): OwnRow {
 		result: { content: [{ type: "text", text: "a\nb\nc\nd\ne" }] },
 		render: () => ["<native>"],
 		invalidate() {},
-		setExpanded(expanded) {
-			this.expanded = expanded;
-		},
 		...extra,
 	};
 }
 
 describe("ClaudeRow", () => {
 	it("draws a marker, Name(arguments), and a short result", () => {
-		const row = new ClaudeRow(own({ toolDefinition: { label: "Web Search" } }), { painter: plain, expandHint: "ctrl+o to expand" });
+		const row = new ClaudeRow(own({ toolDefinition: { label: "Web Search" } }), options);
 		expect(row.render(80)).toEqual([
 			"",
 			`${dot} Web Search(query: "pi tui", limit: 3)`,
 			"  ⎿  a",
 			"     b",
 			"     c",
-			"     … +2 lines (ctrl+o to expand)",
+			"     … +2 lines",
 		]);
 	});
 
 	it("shows a failure in place of the output", () => {
-		const row = new ClaudeRow(own({ result: { isError: true, content: [{ type: "text", text: "boom" }] } }), { painter: plain, expandHint: "x" });
+		const row = new ClaudeRow(own({ result: { isError: true, content: [{ type: "text", text: "boom" }] } }), options);
 		expect(row.render(80).slice(2)).toEqual(["  ⎿  Error: boom"]);
 	});
 
-	it("becomes Pi's own row once opened by a click", () => {
-		const target = own({});
-		const row = new ClaudeRow(target, { painter: plain, expandHint: "x" });
-		const event = { type: "click", button: "left", x: 0, y: 1, screenX: 0, screenY: 1, width: 80, height: 6, shift: false, alt: false, ctrl: false } as const;
+	it("opens to Pi's own row on a click when it leaves output out, and closes the same way", () => {
+		const row = new ClaudeRow(own({}), options);
+		row.render(80);
+		const event = { type: "click", button: "left", x: 2, y: 1, screenX: 2, screenY: 1, width: 80, height: 6, shift: false, alt: false, ctrl: false } as const;
 		expect(row.handleMouse(event)).toEqual({ handled: true });
-		expect(row.render(80)).toEqual(["<native>"]);
+		expect(row.render(10)).toEqual(["<bg><native>  \x1b[49m", "<bg>          \x1b[49m"]);
+		row.handleMouse({ ...event, y: 0 });
+		expect(row.render(80)[1]).toContain("query");
+	});
+
+	it("does not open when nothing was left out", () => {
+		const row = new ClaudeRow(own({ result: { content: [{ type: "text", text: "a" }] } }), options);
+		row.render(80);
+		const event = { type: "click", button: "left", x: 2, y: 1, screenX: 2, screenY: 1, width: 80, height: 3, shift: false, alt: false, ctrl: false } as const;
+		expect(row.handleMouse(event)).toBeUndefined();
 	});
 });
 

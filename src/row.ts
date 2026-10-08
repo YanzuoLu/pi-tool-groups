@@ -3,20 +3,18 @@ import { getLanguageFromPath, highlightCode, renderDiff } from "@earendil-works/
 import { truncateToWidth, wrapTextWithAnsi, type Component, type TuiMouseEvent, type TuiMouseEventResult } from "@earendil-works/pi-tui";
 import type { ToolArgs } from "./classify.ts";
 import { isActive, type ToolRow } from "./group.ts";
-import { plural, previewOutput, RESULT_INDENT, RESULT_PREFIX, statusDot, type Painter } from "./format.ts";
+import { drawOpened, hitsText, plural, previewOutput, RESULT_INDENT, RESULT_PREFIX, statusDot, type Painter } from "./format.ts";
 
 /** The parts of Pi's tool row that a call of its own reads, beyond what a group needs. */
 export interface OwnRow extends ToolRow {
 	toolDefinition?: { label?: string };
 	cwd?: string;
 	hideComponent?: boolean;
-	setExpanded(expanded: boolean): void;
 }
 
 export interface RowOptions {
 	painter: Painter;
-	/** "ctrl+o to expand", shown after a cut preview. */
-	expandHint: string;
+	requestRender: () => void;
 	/** Whether the agent is running; a call left without a result by an earlier run is not. */
 	agentRunning?: () => boolean;
 	/** Runs before a click opens the row, to keep the line under the pointer. */
@@ -66,20 +64,31 @@ function lineCount(text: string): number {
 }
 
 /**
- * A call that keeps its own row, drawn the way Claude Code draws it while closed:
- * its marker, `Name(arguments)`, and a short `⎿` result. Opened by a click or
- * Pi's tool-output toggle, it is Pi's own row.
+ * A call that keeps its own row, drawn the way Claude Code draws it: its marker,
+ * `Name(arguments)`, and a short `⎿` result. When that result leaves something
+ * out, a click opens the row in place, as Pi draws it on a highlighted
+ * background, and a click on the opened row closes it again. Pi's tool-output
+ * toggle only changes how the opened row draws.
  */
 export class ClaudeRow implements Component {
+	private opened = false;
+	/** Whether the closed view left part of the result out, which makes it open on a click. */
+	private cut = false;
+	private lines: string[] = [];
+
 	constructor(
 		readonly row: OwnRow,
 		private readonly options: RowOptions,
 	) {}
 
 	render(width: number): string[] {
-		if (this.row.expanded) return this.row.render(width);
-		if (this.row.hideComponent) return [];
-		return ["", this.header(width), ...this.body(width)];
+		if (this.opened) this.lines = drawOpened(this.row.render(width), width, this.options.painter);
+		else if (this.row.hideComponent) this.lines = [];
+		else {
+			this.cut = false;
+			this.lines = ["", this.header(width), ...this.body(width)];
+		}
+		return this.lines;
 	}
 
 	invalidate(): void {
@@ -87,11 +96,12 @@ export class ClaudeRow implements Component {
 	}
 
 	handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
-		if (this.row.expanded) return this.row.handleMouse?.(event);
-		if (event.y < 1 || event.button !== "left") return undefined;
+		if (event.button !== "left" || (event.type !== "press" && event.type !== "click")) return undefined;
+		if (!(this.opened || this.cut) || !hitsText(this.lines, event)) return undefined;
 		if (event.type === "click") {
 			this.options.beforeToggle?.();
-			this.row.setExpanded(true);
+			this.opened = !this.opened;
+			this.options.requestRender();
 		}
 		return { handled: true };
 	}
@@ -130,10 +140,11 @@ export class ClaudeRow implements Component {
 	}
 
 	private failure(width: number): string[] {
-		const { painter, expandHint } = this.options;
+		const { painter } = this.options;
 		const text = outputOf(this.row).trim();
 		const message = /^error\b/iu.test(text) ? text : `Error: ${text}`;
-		const { rows, more } = previewOutput(message, width, expandHint);
+		const { rows, more } = previewOutput(message, width);
+		this.cut = more !== undefined;
 		return this.block([...rows.map((line) => painter.fg("error", line)), ...(more ? [painter.fg("dim", more)] : [])], width);
 	}
 
@@ -151,7 +162,7 @@ export class ClaudeRow implements Component {
 	}
 
 	private write(width: number): string[] {
-		const { painter, expandHint } = this.options;
+		const { painter } = this.options;
 		const content = typeof this.row.args.content === "string" ? this.row.args.content : "";
 		const path = typeof this.row.args.path === "string" ? this.row.args.path : "";
 		const count = lineCount(content);
@@ -162,13 +173,15 @@ export class ClaudeRow implements Component {
 		const gutter = String(shown.length).length;
 		const preview = code.map((line, index) => `${painter.fg("dim", String(index + 1).padStart(gutter))} ${line}`);
 		const hidden = count - shown.length;
-		const more = hidden > 0 ? [painter.fg("dim", `… +${hidden} ${plural(hidden, "line")} (${expandHint})`)] : [];
+		this.cut = hidden > 0;
+		const more = hidden > 0 ? [painter.fg("dim", `… +${hidden} ${plural(hidden, "line")}`)] : [];
 		return [...this.block([summary], width), ...preview.map((line) => truncateToWidth(RESULT_INDENT + line, width)), ...more.map((line) => RESULT_INDENT + line)];
 	}
 
 	private output(width: number): string[] {
-		const { painter, expandHint } = this.options;
-		const { rows, more } = previewOutput(outputOf(this.row), width, expandHint);
+		const { painter } = this.options;
+		const { rows, more } = previewOutput(outputOf(this.row), width);
+		this.cut = more !== undefined;
 		if (rows.length === 0) return this.block([painter.fg("dim", "(No content)")], width);
 		return this.block([...rows, ...(more ? [painter.fg("dim", more)] : [])], width);
 	}
