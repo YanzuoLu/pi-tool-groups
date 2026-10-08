@@ -23,12 +23,12 @@ type Hook = { behavior: (self: { children: unknown[] }, args: unknown[], origina
  * this module does not, so the wrapper is installed once and each load only
  * swaps the behavior it calls.
  */
-function hookMethod(target: object, method: string, behavior: Hook["behavior"]): void {
+function hookMethod(target: object, method: string, behavior: Hook["behavior"]): Hook {
 	const holder = target as Record<PropertyKey, unknown>;
 	const existing = holder[HOOK_KEY] as Hook | undefined;
 	if (existing) {
 		existing.behavior = behavior;
-		return;
+		return existing;
 	}
 	const original = holder[method] as Render;
 	const hook: Hook = { behavior };
@@ -36,7 +36,10 @@ function hookMethod(target: object, method: string, behavior: Hook["behavior"]):
 		return hook.behavior(this, args, original);
 	};
 	Object.defineProperty(holder, HOOK_KEY, { value: hook });
+	return hook;
 }
+
+const passThrough: Hook["behavior"] = (self, args, original) => original.apply(self, args);
 
 /** Pi's chat is the last child of the document container, the TUI's first child. */
 function findChat(tui: unknown): { children: unknown[] } | undefined {
@@ -100,8 +103,8 @@ export default function toolGroups(pi: ExtensionAPI): void {
 	/** Whether the agent is running, kept from events: a ctx must not be read while drawing, as a reload makes it stale. */
 	let running = false;
 	const agentRunning = () => running;
-	/** Pi's chat, while this load draws it. */
-	let hookedChat: object | undefined;
+	/** The hook on Pi's chat and the behavior this load put there. */
+	let installed: { hook: Hook; behavior: Hook["behavior"] } | undefined;
 
 	const remember = (ctx: ExtensionContext) => {
 		finished.clear();
@@ -127,11 +130,11 @@ export default function toolGroups(pi: ExtensionAPI): void {
 	});
 
 	// The chat outlives this load. Hand its drawing back to Pi before a reload or
-	// session switch, so nothing from this load runs once it is gone.
-	pi.on("session_shutdown", (_event, ctx) => {
-		if (hookedChat) hookMethod(hookedChat, "render", (self, args, original) => original.apply(self, args));
-		hookedChat = undefined;
-		if (ctx.hasUI) ctx.ui.setWidget(WIDGET_KEY, undefined, { placement: "belowEditor" });
+	// session switch, so nothing from this load runs once it is gone, unless the
+	// next load has already put its own behavior there.
+	pi.on("session_shutdown", () => {
+		if (installed?.hook.behavior === installed?.behavior) installed!.hook.behavior = passThrough;
+		installed = undefined;
 	});
 
 	pi.on("session_start", (_event, ctx) => {
@@ -142,8 +145,7 @@ export default function toolGroups(pi: ExtensionAPI): void {
 		ctx.ui.setWidget(WIDGET_KEY, (tui, theme) => {
 			const chat = findChat(tui);
 			if (chat) {
-				hookedChat = chat;
-				hookMethod(chat, "render", (self, args, original) => {
+				const behavior: Hook["behavior"] = (self, args, original) => {
 					const children = self.children;
 					const width = args[0] as number;
 					const painter = theme as Painter;
@@ -185,7 +187,8 @@ export default function toolGroups(pi: ExtensionAPI): void {
 					} finally {
 						self.children = children;
 					}
-				});
+				};
+				installed = { hook: hookMethod(chat, "render", behavior), behavior };
 			}
 			return { render: () => [], invalidate() {} };
 		}, { placement: "belowEditor" });
