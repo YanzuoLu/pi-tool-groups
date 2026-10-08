@@ -168,7 +168,7 @@ export class ClaudeRow implements Component {
 		const count = lineCount(content);
 		const summary = `Wrote ${painter.bold(String(count))} ${plural(count, "line")} to ${painter.bold(displayPath(path, this.row.cwd))}`;
 		if (!content) return this.block([summary, "(No content)"], width);
-		const shown = content.split("\n").slice(0, WRITE_PREVIEW_ROWS);
+		const shown = content.split("\n").slice(0, Math.min(count, WRITE_PREVIEW_ROWS));
 		const code = highlightCode(shown.join("\n"), getLanguageFromPath(path));
 		const gutter = String(shown.length).length;
 		const preview = code.map((line, index) => `${painter.fg("dim", String(index + 1).padStart(gutter))} ${line}`);

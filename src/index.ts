@@ -97,6 +97,11 @@ export default function toolGroups(pi: ExtensionAPI): void {
 	const finished = new Map<number, number>();
 	const groupStates = new WeakMap<object, GroupState>();
 	const ownRows = new WeakMap<object, ClaudeRow>();
+	/** Whether the agent is running, kept from events: a ctx must not be read while drawing, as a reload makes it stale. */
+	let running = false;
+	const agentRunning = () => running;
+	/** Pi's chat, while this load draws it. */
+	let hookedChat: object | undefined;
 
 	const remember = (ctx: ExtensionContext) => {
 		finished.clear();
@@ -114,20 +119,36 @@ export default function toolGroups(pi: ExtensionAPI): void {
 		if (message.role === "assistant" && typeof message.timestamp === "number") finished.set(message.timestamp, Date.now());
 	});
 
+	pi.on("agent_start", () => {
+		running = true;
+	});
+	pi.on("agent_end", () => {
+		running = false;
+	});
+
+	// The chat outlives this load. Hand its drawing back to Pi before a reload or
+	// session switch, so nothing from this load runs once it is gone.
+	pi.on("session_shutdown", (_event, ctx) => {
+		if (hookedChat) hookMethod(hookedChat, "render", (self, args, original) => original.apply(self, args));
+		hookedChat = undefined;
+		if (ctx.hasUI) ctx.ui.setWidget(WIDGET_KEY, undefined, { placement: "belowEditor" });
+	});
+
 	pi.on("session_start", (_event, ctx) => {
 		if (!ctx.hasUI) return;
+		running = false;
 		remember(ctx);
 		// An invisible widget is the extension API's way to reach Pi's TUI and its chat.
 		ctx.ui.setWidget(WIDGET_KEY, (tui, theme) => {
 			const chat = findChat(tui);
 			if (chat) {
+				hookedChat = chat;
 				hookMethod(chat, "render", (self, args, original) => {
 					const children = self.children;
 					const width = args[0] as number;
 					const painter = theme as Painter;
 					const requestRender = () => tui.requestRender();
 					const beforeToggle = () => holdViewport(tui);
-					const agentRunning = () => !ctx.isIdle();
 					const finishedAt = (message: { timestamp: number }) => finished.get(message.timestamp);
 
 					const makeGroup = (members: unknown[]) => {
