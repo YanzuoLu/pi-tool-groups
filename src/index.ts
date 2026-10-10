@@ -133,7 +133,7 @@ export default function toolGroups(pi: ExtensionAPI): void {
 	// session switch, so nothing from this load runs once it is gone, unless the
 	// next load has already put its own behavior there.
 	pi.on("session_shutdown", () => {
-		if (installed?.hook.behavior === installed?.behavior) installed!.hook.behavior = passThrough;
+		if (installed && installed.hook.behavior === installed.behavior) installed.hook.behavior = passThrough;
 		installed = undefined;
 	});
 
