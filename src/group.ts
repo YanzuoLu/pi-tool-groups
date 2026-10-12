@@ -263,27 +263,40 @@ export class ToolGroup implements Component {
 		}
 		const lines = [truncateToWidth(`${statusDot(painter, "running", now)}${summary}${clock}…`, width)];
 
-		// Thinking that came after the last call says where the turn is; otherwise the last call does.
-		const lastThought = this.thoughts.at(-1);
-		const lastRow = this.rows.at(-1);
-		const thoughtIsLatest = lastThought !== undefined
-			&& (lastRow === undefined || this.members.indexOf(lastThought as Component) > this.members.indexOf(lastRow));
-		if (thoughtIsLatest) {
-			const text = thinkingSummary(lastThought);
-			if (text) lines.push(truncateToWidth(painter.fg("dim", RESULT_PREFIX + painter.italic(text)), width));
-			return lines;
-		}
-		if (!lastRow) return lines;
-		let text = hintOf(lastRow);
-		const bash = activeRows.filter((row) => row.toolName === "bash");
-		if (bash.length > 0) {
-			const longest = Math.max(...bash.map((row) => now - startTimes.get(row)!));
-			if (longest >= ELAPSED_FROM_MS) {
-				const count = Math.max(...bash.map(outputLines));
-				text += count > 0 ? ` (${formatDuration(longest)} · ${count} ${plural(count, "line")})` : ` (${formatDuration(longest)})`;
-			}
-		}
+		const text = this.latest(activeRows, now);
 		if (text) lines.push(truncateToWidth(painter.fg("dim", RESULT_PREFIX + text), width));
 		return lines;
+	}
+
+	/**
+	 * What the newest call or thinking says about where the turn is. One with nothing to say yet,
+	 * a call whose arguments are still streaming in or thinking with no text so far, leaves the
+	 * line on the one before it, so the line does not blink between calls.
+	 */
+	private latest(activeRows: readonly ToolRow[], now: number): string {
+		const { painter } = this.options;
+		const thoughts = new Set<unknown>(this.thoughts);
+		const rows = new Set<unknown>(this.rows);
+		for (let index = this.members.length - 1; index >= 0; index--) {
+			const member = this.members[index];
+			if (thoughts.has(member)) {
+				const text = thinkingSummary(member as ThoughtLike);
+				if (text) return painter.italic(text);
+			} else if (rows.has(member)) {
+				const text = hintOf(member as ToolRow);
+				if (text) return text + this.bashProgress(activeRows, now);
+			}
+		}
+		return "";
+	}
+
+	/** How long the running shell commands have taken and how much they printed, once it is worth showing. */
+	private bashProgress(activeRows: readonly ToolRow[], now: number): string {
+		const bash = activeRows.filter((row) => row.toolName === "bash");
+		if (bash.length === 0) return "";
+		const longest = Math.max(...bash.map((row) => now - startTimes.get(row)!));
+		if (longest < ELAPSED_FROM_MS) return "";
+		const count = Math.max(...bash.map(outputLines));
+		return count > 0 ? ` (${formatDuration(longest)} · ${count} ${plural(count, "line")})` : ` (${formatDuration(longest)})`;
 	}
 }

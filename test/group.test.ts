@@ -153,6 +153,37 @@ describe("ToolGroup", () => {
 	});
 });
 
+describe("a live ToolGroup's second line", () => {
+	const thought = (text: string) => ({
+		isStreaming: true,
+		lastMessage: { timestamp: 0, content: [{ type: "thinking", thinking: text }] },
+		render: () => [],
+		invalidate() {},
+	});
+	const live = (members: unknown[]) => {
+		const rows = members.filter((member) => "toolName" in (member as object)) as ToolRow[];
+		const thoughts = members.filter((member) => "lastMessage" in (member as object)) as ReturnType<typeof thought>[];
+		const g = new ToolGroup(rows, thoughts, members as ToolRow[], {
+			painter: plain,
+			state: { expanded: false },
+			finishedAt: () => undefined,
+			requestRender() {},
+			now: () => 600,
+		});
+		g.working = true;
+		return g.render(80)[2];
+	};
+
+	it("stays on the previous call while the next call's arguments stream in", () => {
+		expect(live([row("bash", { command: "sleep 3" }), row("bash", {}, false)])).toBe("  ⎿  $ sleep 3");
+	});
+
+	it("stays on the previous call until new thinking has text", () => {
+		expect(live([row("bash", { command: "ls" }), thought("")])).toBe("  ⎿  $ ls");
+		expect(live([row("bash", { command: "ls" }), thought("**Checking files**")])).toBe("  ⎿  Checking files");
+	});
+});
+
 describe("an opened ToolGroup", () => {
 	it("passes clicks on a member to that member", () => {
 		const seen: number[] = [];
