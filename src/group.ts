@@ -114,7 +114,8 @@ export function summarize(
 		const count = counts[kind];
 		if (count > 0) parts.push(`${active ? running : done} ${bold(String(count))} ${count === 1 ? one : many}`);
 	}
-	const text = parts.join(", ");
+	// Thinking whose time is unknown is still named, without a made-up duration.
+	const text = parts.join(", ") || (active ? "thinking" : "thought");
 	return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
@@ -232,6 +233,7 @@ export class ToolGroup implements Component {
 		return { handled: true };
 	}
 
+	/** How long the group's thinking took, or undefined if it has none or when one of its turns finished is unknown. */
 	private thoughtMs(now: number): number | undefined {
 		if (this.thoughts.length === 0) return undefined;
 		let total = 0;
@@ -239,7 +241,8 @@ export class ToolGroup implements Component {
 			const message = thought.lastMessage;
 			if (!message) continue;
 			const end = thought.isStreaming ? now : this.options.finishedAt(message);
-			if (end !== undefined && end > message.timestamp) total += Math.min(end - message.timestamp, THINKING_CAP_MS);
+			if (end === undefined) return undefined;
+			if (end > message.timestamp) total += Math.min(end - message.timestamp, THINKING_CAP_MS);
 		}
 		return total;
 	}

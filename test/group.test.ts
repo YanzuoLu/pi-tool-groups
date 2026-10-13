@@ -43,6 +43,11 @@ describe("summarize", () => {
 		expect(summarize({ search: 0, read: 0, list: 0, bash: 0 }, true, 300)).toBe("Thinking for 1s");
 	});
 
+	it("names thinking without a duration when its time is unknown", () => {
+		expect(summarize({ search: 0, read: 1, list: 0, bash: 0 }, false, undefined)).toBe("Read 1 file");
+		expect(summarize({ search: 0, read: 0, list: 0, bash: 0 }, false, undefined)).toBe("Thought");
+	});
+
 	it("counts distinct paths for the read tool", () => {
 		const rows = [
 			{ toolName: "read", args: { path: "a" } },
@@ -181,6 +186,22 @@ describe("a live ToolGroup's second line", () => {
 	it("stays on the previous call until new thinking has text", () => {
 		expect(live([row("bash", { command: "ls" }), thought("")])).toBe("  ⎿  $ ls");
 		expect(live([row("bash", { command: "ls" }), thought("**Checking files**")])).toBe("  ⎿  Checking files");
+	});
+});
+
+describe("a ToolGroup's thinking time", () => {
+	const thought = { isStreaming: false, lastMessage: { timestamp: 1000, content: [] }, render: () => [], invalidate() {} };
+	const render = (finishedAt: () => number | undefined) =>
+		new ToolGroup([row("read", { path: "a" })], [thought], [thought, row("read", { path: "a" })] as ToolRow[], {
+			painter: plain,
+			state: { expanded: false },
+			finishedAt,
+			requestRender() {},
+		}).render(80)[1];
+
+	it("is left out when a turn's end is unknown", () => {
+		expect(render(() => 5000)).toBe("  Thought for 4s, read 1 file");
+		expect(render(() => undefined)).toBe("  Read 1 file");
 	});
 });
 
