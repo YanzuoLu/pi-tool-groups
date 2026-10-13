@@ -95,6 +95,20 @@ function holdViewport(tui: unknown): void {
 
 type Message = { role?: string; timestamp?: number };
 
+/**
+ * What another extension that draws a chat for a different conversation, such as a side conversation,
+ * puts on that chat container under {@link CONVERSATION_KEY}, so its groups time thinking and show
+ * running calls from that conversation instead of this session.
+ */
+export interface Conversation {
+	/** When the assistant turn that started at `message.timestamp` finished streaming. */
+	finishedAt(message: { timestamp: number }): number | undefined;
+	/** Whether that conversation's agent is running. */
+	running(): boolean;
+}
+
+export const CONVERSATION_KEY = Symbol.for("pi-tool-groups.conversation");
+
 export default function toolGroups(pi: ExtensionAPI): void {
 	/** When each assistant turn, keyed by its start time, finished streaming. */
 	const finished = new Map<number, number>();
@@ -102,7 +116,7 @@ export default function toolGroups(pi: ExtensionAPI): void {
 	const ownRows = new WeakMap<object, ClaudeRow>();
 	/** Whether the agent is running, kept from events: a ctx must not be read while drawing, as a reload makes it stale. */
 	let running = false;
-	const agentRunning = () => running;
+	const sessionRunning = () => running;
 	/** The hook on Pi's chat and the behavior this load put there. */
 	let installed: { hook: Hook; behavior: Hook["behavior"] } | undefined;
 
@@ -151,7 +165,11 @@ export default function toolGroups(pi: ExtensionAPI): void {
 					const painter = theme as Painter;
 					const requestRender = () => tui.requestRender();
 					const beforeToggle = () => holdViewport(tui);
-					const finishedAt = (message: { timestamp: number }) => finished.get(message.timestamp);
+					const conversation = (self as unknown as Record<symbol, Conversation | undefined>)[CONVERSATION_KEY];
+					const finishedAt = conversation
+						? (message: { timestamp: number }) => conversation.finishedAt(message)
+						: (message: { timestamp: number }) => finished.get(message.timestamp);
+					const agentRunning = conversation ? () => conversation.running() : sessionRunning;
 
 					const makeGroup = (members: unknown[]) => {
 						let state = groupStates.get(members[0] as object);

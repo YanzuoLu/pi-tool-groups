@@ -38,6 +38,8 @@ Pi's tool output toggle (`ctrl+o` by default) does not open or close anything he
 
 The extension changes only how the chat is laid out. It does not touch tool definitions, thinking display, or key bindings.
 
+An extension that draws another conversation in a chat container of its own, such as a side conversation, can put a `{ finishedAt(message), running() }` object on that container under `Symbol.for("pi-tool-groups.conversation")`. Groups in that chat then time thinking and show running calls from that conversation instead of the current session.
+
 ## Install
 
 ```bash
